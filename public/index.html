@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body.light-theme {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f2f3f5;
+            --bg-tertiary: #ebedef;
+            --text-primary: #060607;
+            --text-secondary: #4f5660;
+            --accent: #5865f2;
+        }
+        body.dark-theme {
+            --bg-primary: #36393f;
+            --bg-secondary: #2f3136;
+            --bg-tertiary: #202225;
+            --text-primary: #ffffff;
+            --text-secondary: #b9bbbe;
+            --accent: #5865f2;
+        }
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            transition: all 0.3s ease;
+        }
+        .discord-sidebar {
+            background-color: var(--bg-tertiary);
+        }
+        .discord-channel-bar {
+            background-color: var(--bg-secondary);
+        }
+        .discord-chat {
+            background-color: var(--bg-primary);
+        }
+        .discord-input {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .discord-button {
+            background-color: var(--accent);
+        }
+        .discord-button:hover {
+            background-color: #4752c4;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="dark-theme">
+    <div class="flex h-screen">
+        <div class="discord-sidebar w-64 p-4 flex flex-col">
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl font-bold">Secure Chat</h1>
+                <button id="theme-toggle" class="p-2 rounded-full discord-button text-white focus:outline-none">
+                    <svg id="sun-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
+                    </svg>
+                    <svg id="moon-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div id="auth" class="mb-4">
+                <input id="username" type="text" placeholder="Nom d'utilisateur" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <input id="password" type="password" placeholder="Mot de passe" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <button onclick="login()" class="discord-button text-white p-2 rounded w-full">Connexion</button>
+                <button onclick="register()" class="discord-button text-white p-2 rounded w-full mt-2">Inscription</button>
+            </div>
+            <div id="friends-section" class="hidden flex-grow">
+                <h2 class="text-lg mb-2">Amis</h2>
+                <input id="friend-username" type="text" placeholder="Ajouter un ami" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <button onclick="addFriend()" class="discord-button text-white p-2 rounded w-full">Ajouter</button>
+                <ul id="friends-list" class="mt-2 overflow-y-auto flex-grow"></ul>
+            </div>
+            <div id="report" class="mt-4 hidden">
+                <h2 class="text-lg">Signaler</h2>
+                <input id="report-username" type="text" placeholder="Utilisateur à signaler" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <select id="report-category" class="discord-input border-none p-2 mb-2 w-full rounded">
+                    <option value="spam">Spam</option>
+                    <option value="harassment">Harcèlement</option>
+                    <option value="inappropriate">Contenu inapproprié</option>
+                </select>
+                <button onclick="reportUser()" class="discord-button text-white p-2 rounded w-full">Signaler</button>
+            </div>
+            <div id="admin-panel" class="mt-4 hidden">
+                <h2 class="text-lg">Panel Admin</h2>
+                <button onclick="viewAllConversations()" class="discord-button text-white p-2 rounded w-full mb-2">Voir toutes les conversations</button>
+                <input id="sanction-username" type="text" placeholder="Utilisateur à sanctionner" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <button onclick="sanctionUser()" class="discord-button text-white p-2 rounded w-full">Sanctionner</button>
+            </div>
+            <div id="modo-panel" class="mt-4 hidden">
+                <h2 class="text-lg">Panel Modo</h2>
+                <input id="promote-username" type="text" placeholder="Utilisateur à promouvoir" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <select id="promote-role" class="discord-input border-none p-2 mb-2 w-full rounded">
+                    <option value="admin">Admin</option>
+                    <option value="modo">Modo</option>
+                </select>
+                <button onclick="promoteUser()" class="discord-button text-white p-2 rounded w-full mb-2">Promouvoir</button>
+                <input id="ban-username" type="text" placeholder="Utilisateur à bannir" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <button onclick="banUser()" class="discord-button text-white p-2 rounded w-full mb-2">Bannir</button>
+                <input id="unban-username" type="text" placeholder="Utilisateur à débannir" class="discord-input border-none p-2 mb-2 w-full rounded">
+                <button onclick="unbanUser()" class="discord-button text-white p-2 rounded w-full">Débannir</button>
+            </div>
+        </div>
+        <div class="flex-grow flex flex-col discord-chat">
+            <div class="discord-channel-bar p-4">
+                <h2 id="chat-title" class="text-lg">Chat Public</h2>
+            </div>
+            <div id="chat-area" class="flex-grow overflow-y-auto p-4"></div>
+            <div id="message-input" class="p-4 hidden">
+                <input id="message" type="text" placeholder="Envoyer un message..." class="discord-input border-none p-2 w-full rounded">
+                <button onclick="sendMessage()" class="discord-button text-white p-2 rounded mt-2">Envoyer</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ENCRYPTION_KEY = 'my-secret-key';
+        let currentUser = null;
+        let currentChat = 'public';
+        const socket = io('/');
+        let chats = { public: [], private: {} }; // Stocke les messages
+
+        // Theme Management
+        const themeToggle = document.getElementById('theme-toggle');
+        const sunIcon = document.getElementById('sun-icon');
+        const moonIcon = document.getElementById('moon-icon');
+
+        function setTheme(theme) {
+            document.body.className = theme + '-theme';
+            localStorage.setItem('theme', theme);
+            if (theme === 'dark') {
+                sunIcon.classList.remove('hidden');
+                moonIcon.classList.add('hidden');
+            } else {
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        setTheme(savedTheme);
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = localStorage.getItem('theme') || 'dark';
+            setTheme(currentTheme === 'light' ? 'dark' : 'light');
+        });
+
+        function encrypt(message) {
+            return CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString();
+        }
+
+        function decrypt(ciphertext) {
+            try {
+                const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_KEY);
+                return bytes.toString(CryptoJS.enc.Utf8);
+            } catch (e) {
+                return ciphertext;
+            }
+        }
+
+        socket.on('publicMessage', (msg) => {
+            chats.public.push(msg);
+            if (currentChat === 'public') {
+                appendMessage(msg);
+            }
+        });
+
+        socket.on('privateMessage', (msg) => {
+            const chatId = msg.from === currentUser ? msg.to : msg.from;
+            if (!chats.private[chatId]) chats.private[chatId] = [];
+            chats.private[chatId].push({ user: msg.from, content: msg.content, timestamp: msg.timestamp });
+            if (currentChat === chatId) {
+                appendMessage({ user: msg.from, content: msg.content, timestamp: msg.timestamp });
+            }
+        });
+
+        socket.on('userBanned', (username) => {
+            if (currentUser === username) {
+                alert('Vous avez été banni.');
+                window.location.reload();
+            }
+        });
+
+        socket.on('userUnbanned', (username) => {
+            if (currentUser === username) {
+                alert('Vous avez été débanni.');
+            }
+        });
+
+        socket.on('userPromoted', ({ username, role }) => {
+            if (currentUser === username) {
+                updatePanels(role);
+                alert(`Vous avez été promu ${role}`);
+            }
+        });
+
+        function appendMessage(msg) {
+            const chatArea = document.getElementById('chat-area');
+            const div = document.createElement('div');
+            div.className = 'mb-4 flex items-start';
+            div.innerHTML = `
+                <div class="mr-2">
+                    <div class="w-10 h-10 bg-[var(--accent)] rounded-full flex items-center justify-center text-white font-bold">
+                        ${msg.user[0].toUpperCase()}
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-baseline">
+                        <span class="font-bold mr-2">${msg.user}</span>
+                        <span class="text-[var(--text-secondary)] text-xs">${new Date(msg.timestamp).toLocaleString()}</span>
+                    </div>
+                    <p>${decrypt(msg.content)}</p>
+                </div>
+            `;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function displayMessages(chatId) {
+            const chatArea = document.getElementById('chat-area');
+            chatArea.innerHTML = '';
+            const messages = chatId === 'public' ? chats.public : (chats.private[chatId] || []);
+            messages.forEach(msg => appendMessage(msg));
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    currentUser = username;
+                    document.getElementById('auth').classList.add('hidden');
+                    document.getElementById('friends-section').classList.remove('hidden');
+                    document.getElementById('report').classList.remove('hidden');
+                    document.getElementById('message-input').classList.remove('hidden');
+                    updatePanels(data.role);
+                    socket.emit('userConnected', username);
+                    await loadMessages();
+                    loadChats();
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function register() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        function updatePanels(role) {
+            document.getElementById('admin-panel').classList.add('hidden');
+            document.getElementById('modo-panel').classList.add('hidden');
+            if (role === 'admin') {
+                document.getElementById('admin-panel').classList.remove('hidden');
+            }
+            if (role === 'modo') {
+                document.getElementById('modo-panel').classList.remove('hidden');
+            }
+        }
+
+        async function sendMessage() {
+            const message = document.getElementById('message').value;
+            if (message) {
+                const msg = {
+                    user: currentUser,
+                    content: encrypt(message),
+                    timestamp: new Date().toISOString()
+                };
+                if (currentChat === 'public') {
+                    socket.emit('publicMessage', msg);
+                } else {
+                    const privateMsg = {
+                        from: currentUser,
+                        to: currentChat,
+                        content: encrypt(message),
+                        timestamp: new Date().toISOString()
+                    };
+                    socket.emit('privateMessage', privateMsg);
+                }
+                document.getElementById('message').value = '';
+            }
+        }
+
+        async function loadMessages() {
+            try {
+                const response = await fetch(`/api/messages/${currentUser}`);
+                if (!response.ok) {
+                    throw new Error('Erreur lors du chargement des messages');
+                }
+                const messages = await response.json();
+                chats.public = messages.filter(msg => msg.type === 'public');
+                chats.private = {};
+                messages.filter(msg => msg.type === 'private').forEach(msg => {
+                    const chatId = msg.user === currentUser ? msg.to_user : msg.user;
+                    if (!chats.private[chatId]) chats.private[chatId] = [];
+                    chats.private[chatId].push({ user: msg.user, content: msg.content, timestamp: msg.timestamp });
+                });
+                displayMessages(currentChat);
+            } catch (error) {
+                console.error('Erreur lors du chargement des messages:', error);
+                alert('Impossible de charger les messages');
+            }
+        }
+
+        async function loadChats() {
+            document.getElementById('chat-title').textContent = currentChat === 'public' ? 'Chat Public' : currentChat;
+            displayMessages(currentChat);
+            try {
+                const response = await fetch(`/api/friends/${currentUser}`);
+                const friends = await response.json();
+                loadFriends(friends);
+            } catch (error) {
+                console.error('Erreur lors du chargement des amis:', error);
+            }
+        }
+
+        async function addFriend() {
+            const friend = document.getElementById('friend-username').value;
+            try {
+                const response = await fetch('/api/add-friend', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user: currentUser, friend })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    loadChats();
+                }
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        function loadFriends(friends) {
+            const friendsList = document.getElementById('friends-list');
+            friendsList.innerHTML = '';
+            const publicLi = document.createElement('li');
+            publicLi.className = `cursor-pointer p-2 rounded ${currentChat === 'public' ? 'bg-[var(--accent)] text-white' : 'hover:bg-[var(--bg-secondary)]'}`;
+            publicLi.textContent = 'Chat Public';
+            publicLi.onclick = () => {
+                currentChat = 'public';
+                loadChats();
+            };
+            friendsList.appendChild(publicLi);
+            friends.forEach(friend => {
+                const li = document.createElement('li');
+                li.className = `cursor-pointer p-2 rounded ${currentChat === friend ? 'bg-[var(--accent)] text-white' : 'hover:bg-[var(--bg-secondary)]'}`;
+                li.innerHTML = `
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 bg-[var(--accent)] rounded-full flex items-center justify-center text-white font-bold mr-2">
+                            ${friend[0].toUpperCase()}
+                        </div>
+                        ${friend}
+                    </div>
+                `;
+                li.onclick = () => {
+                    currentChat = friend;
+                    loadChats();
+                };
+                friendsList.appendChild(li);
+            });
+        }
+
+        async function reportUser() {
+            const username = document.getElementById('report-username').value;
+            const category = document.getElementById('report-category').value;
+            try {
+                const response = await fetch('/api/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reportedBy: currentUser, reportedUser: username, category })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function viewAllConversations() {
+            try {
+                const response = await fetch('/api/conversations');
+                const data = await response.json();
+                alert(JSON.stringify(data, (key, value) => key === 'content' ? decrypt(value) : value, 2));
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function sanctionUser() {
+            const username = document.getElementById('sanction-username').value;
+            try {
+                const response = await fetch('/api/sanction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function promoteUser() {
+            const username = document.getElementById('promote-username').value;
+            const role = document.getElementById('promote-role').value;
+            try {
+                const response = await fetch('/api/promote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, role })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function banUser() {
+            const username = document.getElementById('ban-username').value;
+            try {
+                const response = await fetch('/api/ban', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+
+        async function unbanUser() {
+            const username = document.getElementById('unban-username').value;
+            try {
+                const response = await fetch('/api/unban', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Erreur de connexion au serveur');
+            }
+        }
+    </script>
+</body>
+</html>
